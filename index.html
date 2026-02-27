@@ -1,18 +1,307 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🧧 恭喜發財 - 麻將計帳</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🧧 恭喜發財 - 麻將記帳</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; }
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
 </head>
 <body class="bg-stone-100">
     <div id="root"></div>
 
-    <script type="text/babel" src="app.js"></script>
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        const App = () => {
+            // 圖標組件封裝
+            const Icon = ({ name, size = 18, className = "" }) => {
+                const ref = React.useRef(null);
+                useEffect(() => {
+                    if (window.lucide) {
+                        window.lucide.createIcons({ attrs: { class: className }, nameMap: { [name]: ref.current } });
+                    }
+                }, [name, className]);
+                return <i ref={ref} data-lucide={name} style={{ width: size, height: size }}></i>;
+            };
+
+            // --- 初期設定狀態 ---
+            const [players, setPlayers] = useState(['玩家 1', '玩家 2', '玩家 3', '玩家 4']);
+            const winds = ['東', '南', '西', '北'];
+            const [baseMoney, setBaseMoney] = useState(100);
+            const [pointMoney, setPointMoney] = useState(20);
+            const [isGameStarted, setIsGameStarted] = useState(false);
+
+            // --- 遊戲過程狀態 ---
+            const [history, setHistory] = useState([]);
+            const [currentDealerIdx, setCurrentDealerIdx] = useState(0);
+            const [comboCount, setComboCount] = useState(0);
+            const [roundWindIdx, setRoundWindIdx] = useState(0); 
+
+            // --- 當前輸入表單狀態 ---
+            const [winnerIdx, setWinnerIdx] = useState(0);
+            const [loserIdx, setLoserIdx] = useState(1);
+            const [isSelfDraw, setIsSelfDraw] = useState(true);
+            const [points, setPoints] = useState(0); 
+            const [penalty, setPenalty] = useState(0); 
+
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [isGameStarted, history, isSelfDraw]);
+
+            const balances = useMemo(() => {
+                const res = [0, 0, 0, 0];
+                history.forEach(round => {
+                    round.changes.forEach((change, idx) => { res[idx] += change; });
+                });
+                return res;
+            }, [history]);
+
+            const getRoundStatus = (rIdx, dIdx) => `${winds[rIdx]}風${winds[dIdx]}`;
+
+            const handleAddRound = () => {
+                const changes = [0, 0, 0, 0];
+                const dealerExtraPoints = 1 + (comboCount * 2);
+                const netPoints = points - penalty;
+
+                const calculateTotal = (isWinnerDealer, isLoserDealer, rawPoints) => {
+                    let finalPoints = rawPoints;
+                    if (isWinnerDealer || isLoserDealer) finalPoints += dealerExtraPoints;
+                    return baseMoney + (finalPoints * pointMoney);
+                };
+
+                if (isSelfDraw) {
+                    let totalWon = 0;
+                    players.forEach((_, idx) => {
+                        if (idx !== winnerIdx) {
+                            const amount = calculateTotal(winnerIdx === currentDealerIdx, idx === currentDealerIdx, netPoints);
+                            changes[idx] -= amount;
+                            totalWon += amount;
+                        }
+                    });
+                    changes[winnerIdx] = totalWon;
+                } else {
+                    const amount = calculateTotal(winnerIdx === currentDealerIdx, loserIdx === currentDealerIdx, netPoints);
+                    changes[winnerIdx] = amount;
+                    changes[loserIdx] = -amount;
+                }
+
+                const newRound = {
+                    id: Date.now(),
+                    status: getRoundStatus(roundWindIdx, currentDealerIdx),
+                    winner: players[winnerIdx],
+                    winnerWind: winds[winnerIdx],
+                    type: isSelfDraw ? '自摸' : '放槍',
+                    loser: isSelfDraw ? '三家' : players[loserIdx],
+                    points, penalty, combo: comboCount, changes,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                };
+
+                setHistory([newRound, ...history]);
+                
+                if (winnerIdx === currentDealerIdx) {
+                    setComboCount(comboCount + 1);
+                } else {
+                    setComboCount(0);
+                    const nextDealerIdx = (currentDealerIdx + 1) % 4;
+                    setCurrentDealerIdx(nextDealerIdx);
+                    if (nextDealerIdx === 0) setRoundWindIdx((roundWindIdx + 1) % 4);
+                }
+                setPoints(0); setPenalty(0);
+            };
+
+            const undoLastRound = () => {
+                if (history.length === 0) return;
+                const lastRound = history[0];
+                // 這裡簡單還原歷史，若要精確還原莊家位需記錄於 history 中
+                setHistory(history.slice(1));
+            };
+
+            if (!isGameStarted) {
+                return (
+                    <div className="min-h-screen p-4 flex items-center justify-center">
+                        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-red-700">
+                            <div className="p-8 text-center bg-stone-50 border-b border-stone-100">
+                                <h1 className="text-3xl font-black text-red-800 mb-2">🧧 恭喜發財</h1>
+                                <p className="text-stone-500 font-medium tracking-widest text-sm">台 灣 麻 將 記 帳 系 統</p>
+                            </div>
+                            <div className="p-6 space-y-6">
+                                <div className="space-y-3">
+                                    <label className="flex items-center gap-2 text-sm font-bold text-stone-600">
+                                        <Icon name="users" /> 玩家設定 (初始風位)
+                                    </label>
+                                    {players.map((name, i) => (
+                                        <div key={i} className="flex items-center gap-2">
+                                            <div className="w-12 h-12 bg-amber-50 text-amber-700 flex items-center justify-center rounded-xl font-black border border-amber-200">{winds[i]}</div>
+                                            <input type="text" value={name} onChange={(e) => {
+                                                const p = [...players]; p[i] = e.target.value; setPlayers(p);
+                                            }} className="flex-1 p-3 border-2 border-stone-100 rounded-xl focus:border-red-500 outline-none font-bold" />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 text-center">
+                                    <div><label className="text-sm font-bold text-stone-600 block mb-1">底</label>
+                                    <input type="number" value={baseMoney} onChange={e => setBaseMoney(Number(e.target.value))} className="w-full p-3 bg-stone-50 border-2 border-stone-100 rounded-xl text-center font-black" /></div>
+                                    <div><label className="text-sm font-bold text-stone-600 block mb-1">台</label>
+                                    <input type="number" value={pointMoney} onChange={e => setPointMoney(Number(e.target.value))} className="w-full p-3 bg-stone-50 border-2 border-stone-100 rounded-xl text-center font-black" /></div>
+                                </div>
+                                <button onClick={() => setIsGameStarted(true)} className="w-full bg-red-700 text-white font-black py-4 rounded-2xl shadow-lg active:scale-95 transition-transform">對局開始</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-stone-50 pb-24">
+                    <div className="bg-stone-800 text-stone-100 p-4 sticky top-0 z-20 shadow-lg">
+                        <div className="max-w-md mx-auto">
+                            <div className="flex justify-between items-center mb-4">
+                                <h1 className="text-xl font-black flex items-center gap-2">
+                                    <span className="bg-amber-500 text-stone-900 px-2 py-0.5 rounded text-sm">{getRoundStatus(roundWindIdx, currentDealerIdx)}</span> 計分板
+                                </h1>
+                                <button onClick={() => setIsGameStarted(false)} className="p-2 bg-white/10 rounded-full"><Icon name="settings" size={18} /></button>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                                {players.map((name, i) => (
+                                    <div key={i} className="bg-stone-900/40 rounded-2xl p-2 text-center border border-white/5">
+                                        <div className="text-[10px] text-stone-400 font-bold">{winds[i]}家</div>
+                                        <div className="text-[12px] font-bold truncate text-stone-200">{name}</div>
+                                        <div className={`text-sm font-black ${balances[i] > 0 ? 'text-emerald-400' : balances[i] < 0 ? 'text-rose-500' : 'text-stone-500'}`}>
+                                            {balances[i] > 0 ? `+${balances[i]}` : balances[i]}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="max-w-md mx-auto p-4 space-y-4">
+                        <div className="bg-white rounded-3xl shadow-sm border border-stone-200 p-5 space-y-6">
+                            {/* 莊家選擇 */}
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <label className="text-xs font-bold text-stone-400 block mb-2 text-center">🚩 目前莊家</label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {players.map((name, i) => (
+                                            <button key={i} onClick={() => {setCurrentDealerIdx(i); setComboCount(0);}} className={`py-2 rounded-xl text-xs font-black border-2 transition-all ${currentDealerIdx === i ? 'bg-stone-800 border-stone-900 text-white' : 'bg-white text-stone-400 border-stone-100'}`}>
+                                                {winds[i]}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="w-24 text-center">
+                                    <label className="text-xs font-bold text-stone-400 block mb-2">連莊</label>
+                                    <div className="flex bg-stone-100 rounded-xl overflow-hidden border-2 border-stone-100">
+                                        <button onClick={() => setComboCount(Math.max(0, comboCount - 1))} className="flex-1 py-2 font-bold">-</button>
+                                        <div className="flex-1 py-2 bg-white font-black text-red-700">{comboCount}</div>
+                                        <button onClick={() => setComboCount(comboCount + 1)} className="flex-1 py-2 font-bold">+</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr />
+
+                            {/* 贏家結算 */}
+                            <div className="space-y-4">
+                                <label className="text-xs font-bold text-stone-400 block text-center">🏆 贏家結算</label>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {players.map((name, i) => (
+                                        <button key={i} onClick={() => setWinnerIdx(i)} className={`py-3 rounded-xl font-black border-2 transition-all ${winnerIdx === i ? 'bg-amber-500 border-amber-600 text-white shadow-md' : 'bg-white border-stone-100 text-stone-400'}`}>
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {['自摸', '放槍'].map((type, idx) => (
+                                        <button key={type} onClick={() => setIsSelfDraw(idx === 0)} className={`py-4 rounded-xl font-black border-2 ${isSelfDraw === (idx === 0) ? 'bg-red-700 border-red-800 text-white shadow-md' : 'bg-white border-stone-100 text-stone-400'}`}>{type}</button>
+                                    ))}
+                                </div>
+                                {!isSelfDraw && (
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {players.map((name, i) => (
+                                            <button key={i} disabled={winnerIdx === i} onClick={() => setLoserIdx(i)} className={`py-2 rounded-xl text-xs font-black border-2 ${winnerIdx === i ? 'opacity-20' : loserIdx === i ? 'bg-stone-700 border-stone-800 text-white' : 'bg-white border-stone-100 text-stone-400'}`}>
+                                                {winds[i]}放
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 台數與扣台 */}
+                            <div className="space-y-4">
+                                <div className="bg-stone-50 p-4 rounded-2xl text-center">
+                                    <label className="text-xs font-bold text-stone-400 block mb-2">贏牌台數</label>
+                                    <div className="flex items-center justify-center gap-6">
+                                        <button onClick={() => setPoints(Math.max(0, points - 1))} className="w-10 h-10 bg-white border rounded-full font-bold shadow-sm">-</button>
+                                        <span className="text-3xl font-black text-red-700">{points} <small className="text-sm font-bold text-stone-400">台</small></span>
+                                        <button onClick={() => setPoints(points + 1)} className="w-10 h-10 bg-white border rounded-full font-bold shadow-sm">+</button>
+                                    </div>
+                                </div>
+                                <div className="bg-rose-50/50 p-4 rounded-2xl text-center border border-rose-100">
+                                    <label className="text-xs font-bold text-rose-400 block mb-2">犯規扣台</label>
+                                    <div className="flex items-center justify-center gap-6">
+                                        <button onClick={() => setPenalty(Math.max(0, penalty - 1))} className="w-10 h-10 bg-white border rounded-full font-bold shadow-sm text-rose-300">-</button>
+                                        <span className="text-3xl font-black text-rose-500">{penalty} <small className="text-sm font-bold text-rose-300">台</small></span>
+                                        <button onClick={() => setPenalty(penalty + 1)} className="w-10 h-10 bg-white border rounded-full font-bold shadow-sm text-rose-300">+</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button onClick={handleAddRound} className="w-full bg-amber-500 text-stone-900 font-black py-5 rounded-2xl shadow-lg active:translate-y-1 transition-all border-b-4 border-amber-700 text-xl">確認記帳</button>
+                        </div>
+
+                        {/* 歷史紀錄 */}
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-end px-2">
+                                <h2 className="text-stone-500 font-black flex items-center gap-2"><Icon name="history" /> 歷史紀錄</h2>
+                                <button onClick={undoLastRound} disabled={history.length === 0} className="text-xs font-bold bg-white border px-3 py-1.5 rounded-lg text-stone-500 disabled:opacity-30">撤銷</button>
+                            </div>
+                            <div className="space-y-3">
+                                {history.map((round) => (
+                                    <div key={round.id} className="bg-white rounded-2xl p-4 shadow-sm border border-stone-100">
+                                        <div className="flex justify-between border-b pb-2 mb-2">
+                                            <span className="text-xs font-black bg-stone-800 text-amber-400 px-2 py-0.5 rounded">{round.status}</span>
+                                            <span className="text-xs font-bold text-stone-400">{round.timestamp}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <div className="text-sm font-black text-stone-700">{round.winner} {round.type} ({round.points}台)</div>
+                                            <div className="flex gap-3">
+                                                {round.changes.map((c, i) => (
+                                                    <div key={i} className="text-center">
+                                                        <div className="text-[8px] text-stone-300">{winds[i]}</div>
+                                                        <div className={`text-xs font-bold ${c > 0 ? 'text-emerald-500' : c < 0 ? 'text-rose-500' : 'text-stone-200'}`}>{c > 0 ? `+${c}` : c}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-xs px-4">
+                        <div className="bg-stone-800/95 backdrop-blur text-stone-100 p-3 rounded-2xl shadow-2xl flex justify-between items-center text-xs border border-white/10">
+                            <span>底台: <b>{baseMoney}/{pointMoney}</b></span>
+                            <span className="bg-white/10 px-2 py-1 rounded">莊家台: <b className="text-amber-400">{1 + comboCount * 2}</b></span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
