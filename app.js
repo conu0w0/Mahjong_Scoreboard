@@ -127,7 +127,7 @@ const App = () => {
           <div className="p-6 space-y-6">
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm font-bold text-stone-600">
-                <Users size={18} /> 玩家設定 (初始風位)
+                <Users size={18} /> 玩家設定 (初始風家)
               </label>
               <div className="space-y-2">
                 {players.map((name, i) => (
@@ -209,7 +209,7 @@ const App = () => {
           <div className="grid grid-cols-4 gap-2">
             {players.map((name, i) => (
               <div key={i} className="bg-stone-900/40 backdrop-blur-sm rounded-2xl p-2 text-center border border-white/5 shadow-inner">
-                <div className="text-[10px] text-stone-400 mb-0.5 font-bold uppercase tracking-tighter">{winds[i]}位</div>
+                <div className="text-[10px] text-stone-400 mb-0.5 font-bold uppercase tracking-tighter">{winds[i]}家</div>
                 <div className="text-[12px] font-bold truncate mb-1 text-stone-200">{name || `P${i+1}`}</div>
                 <div className={`text-sm font-black truncate ${balances[i] > 0 ? 'text-emerald-400' : balances[i] < 0 ? 'text-rose-500' : 'text-stone-500'}`}>
                   {balances[i] > 0 ? `+${balances[i]}` : balances[i]}
