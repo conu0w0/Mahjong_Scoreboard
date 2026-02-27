@@ -1,2 +1,28 @@
-# Mahjong_Scoreboard
-Taiwanese Mahjong scoreboard for tournament use. Supports dealer/renchan logic, self-draw/ron settlement, penalty deduction, and history tracking. Designed for fast on-site correction without round rollback.
+# 台灣麻將記帳系統（Mahjong Scoreboard）
+
+用途：供麻將盃快速記帳與結算，支援自摸/胡牌、莊家/連莊、犯規扣台與歷史紀錄。
+
+## 規則定義（本工具採用）
+- 底：baseMoney（每局固定底金額）
+- 台：pointMoney（每台金額）
+- 莊家台：1 + 連莊數*2（若贏家或輸家為莊家，則台數加上莊家台）
+- 淨台數：points - penalty（犯規扣台會從贏家台數扣除）
+
+### 結算公式
+金額 = 底 + (台數 * 台金額)
+
+### 自摸
+贏家向其餘三家收取各自金額，贏家總得分為三家合計。
+
+### 胡牌
+放槍者支付給贏家金額，其他兩家不變。
+
+## 操作說明
+- 設定玩家、底/台後按「對局開始」
+- 每局選擇贏家、自摸/放槍、台數與犯規扣台後按「確認記帳」
+- 可在歷史紀錄中查看每局變動
+
+## 刪除上筆（重要）
+- 「刪除上筆」僅用於修正輸入錯誤的帳務
+- 刪除只會回復金額，不會回溯莊家/連莊/場風等場況
+- 若場況需調整，請使用「目前莊家」與「連莊」手動設定功能
