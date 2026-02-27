@@ -2,321 +2,374 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🧧 恭喜發財 - 麻將記帳</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣麻將記帳系統</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
-        body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* 移除 Chrome/Safari 的數字輸入箭頭 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
     </style>
 </head>
-<body class="bg-stone-100">
-    <div id="root"></div>
+<body class="bg-stone-50 text-stone-800 min-h-screen">
+    <div id="app"></div>
 
-    <script type="text/babel">
-        const { useState, useMemo, useEffect, useRef } = React;
-
-        // --- 安全的圖標組件 ---
-        // 解決 Node.removeChild 錯誤：不要讓 Lucide 直接修改 React 管理的 DOM
-        const LucideIcon = ({ name, size = 18, className = "" }) => {
-            const iconRef = useRef(null);
-
-            useEffect(() => {
-                if (window.lucide && iconRef.current) {
-                    // 清空舊內容防止重複渲染衝突
-                    iconRef.current.innerHTML = ''; 
-                    const { [name]: IconAttrs } = window.lucide.icons;
-                    if (IconAttrs) {
-                        const svg = window.lucide.createIcon(IconAttrs, {
-                            width: size,
-                            height: size,
-                            class: className
-                        });
-                        iconRef.current.appendChild(svg);
-                    }
-                }
-            }, [name, size, className]);
-
-            return <span ref={iconRef} className="inline-flex items-center justify-center"></span>;
+    <script>
+        // --- 核心狀態管理 (對應 React useState) ---
+        let state = {
+            players: ['玩家 1', '玩家 2', '玩家 3', '玩家 4'],
+            winds: ['東', '南', '西', '北'],
+            baseMoney: 100,
+            pointMoney: 20,
+            isGameStarted: false,
+            history: [],
+            currentDealerIdx: 0,
+            comboCount: 0,
+            roundWindIdx: 0,
+            winnerIdx: 0,
+            loserIdx: 1,
+            isSelfDraw: true,
+            points: 0,
+            penalty: 0
         };
 
-        const App = () => {
-            // --- 狀態設定 ---
-            const [players, setPlayers] = useState(['玩家 1', '玩家 2', '玩家 3', '玩家 4']);
-            const winds = ['東', '南', '西', '北'];
-            const [baseMoney, setBaseMoney] = useState(100);
-            const [pointMoney, setPointMoney] = useState(20);
-            const [isGameStarted, setIsGameStarted] = useState(false);
-            const [history, setHistory] = useState([]);
-            const [currentDealerIdx, setCurrentDealerIdx] = useState(0);
-            const [comboCount, setComboCount] = useState(0);
-            const [roundWindIdx, setRoundWindIdx] = useState(0); 
-
-            // 表單輸入
-            const [winnerIdx, setWinnerIdx] = useState(0);
-            const [loserIdx, setLoserIdx] = useState(1);
-            const [isSelfDraw, setIsSelfDraw] = useState(true);
-            const [points, setPoints] = useState(0);
-            const [penalty, setPenalty] = useState(0);
-
-            const balances = useMemo(() => {
-                const res = [0, 0, 0, 0];
-                history.forEach(round => {
-                    round.changes.forEach((change, idx) => { res[idx] += change; });
+        // --- 計算邏輯 (對應 React useMemo / 輔助函數) ---
+        function getBalances() {
+            const res = [0, 0, 0, 0];
+            state.history.forEach(round => {
+                round.changes.forEach((change, idx) => {
+                    res[idx] += change;
                 });
-                return res;
-            }, [history]);
+            });
+            return res;
+        }
 
-            const handleAddRound = () => {
-                const changes = [0, 0, 0, 0];
-                const dealerExtraPoints = 1 + (comboCount * 2);
-                const netPoints = points - penalty;
+        const getRoundStatus = (rIdx, dIdx) => {
+            return `${state.winds[rIdx]}風${state.winds[dIdx]}`;
+        };
 
-                const calculateTotal = (isWinD, isLoseD, p) => {
-                    let f = p;
-                    if (isWinD || isLoseD) f += dealerExtraPoints;
-                    return baseMoney + (f * pointMoney);
-                };
+        // --- 動作處理 (對應 handleAddRound) ---
+        function handleAddRound() {
+            const changes = [0, 0, 0, 0];
+            const dealerExtraPoints = 1 + (state.comboCount * 2);
+            const netPoints = state.points - state.penalty;
 
-                if (isSelfDraw) {
-                    let totalWon = 0;
-                    players.forEach((_, i) => {
-                        if (i !== winnerIdx) {
-                            const amt = calculateTotal(winnerIdx === currentDealerIdx, i === currentDealerIdx, netPoints);
-                            changes[i] -= amt;
-                            totalWon += amt;
-                        }
-                    });
-                    changes[winnerIdx] = totalWon;
-                } else {
-                    const amt = calculateTotal(winnerIdx === currentDealerIdx, loserIdx === currentDealerIdx, netPoints);
-                    changes[winnerIdx] = amt;
-                    changes[loserIdx] = -amt;
+            const calculateTotal = (isWinnerDealer, isLoserDealer, rawPoints) => {
+                let finalPoints = rawPoints;
+                if (isWinnerDealer || isLoserDealer) {
+                    finalPoints += dealerExtraPoints;
                 }
-
-                const newRound = {
-                    id: Date.now(),
-                    status: `${winds[roundWindIdx]}風${winds[currentDealerIdx]}`,
-                    winner: players[winnerIdx],
-                    type: isSelfDraw ? '自摸' : '放槍',
-                    points, penalty, combo: comboCount, changes,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                };
-
-                setHistory([newRound, ...history]);
-                
-                // 莊家邏輯：贏家是莊家則連莊，否則換人
-                if (winnerIdx === currentDealerIdx) {
-                    setComboCount(prev => prev + 1);
-                } else {
-                    setComboCount(0);
-                    const nextD = (currentDealerIdx + 1) % 4;
-                    setCurrentDealerIdx(nextD);
-                    if (nextD === 0) setRoundWindIdx(prev => (prev + 1) % 4);
-                }
-                setPoints(0); setPenalty(0);
+                return state.baseMoney + (finalPoints * state.pointMoney);
             };
 
-            const undoLast = () => {
-                if (confirm('確定要刪除上一筆紀錄嗎？')) {
-                    setHistory(prev => prev.slice(1));
-                }
-            };
-
-            // --- 畫面渲染 ---
-            if (!isGameStarted) {
-                return (
-                    <div className="min-h-screen p-6 flex flex-col items-center justify-center">
-                        <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-t-[12px] border-red-700 p-8 space-y-8">
-                            <div className="text-center">
-                                <h1 className="text-4xl font-black text-red-800 mb-2">🧧 恭喜發財</h1>
-                                <p className="text-stone-400 font-bold tracking-[0.2em] text-sm italic">MAHJONG SCOREBOARD</p>
-                            </div>
-                            
-                            <div className="space-y-4">
-                                {players.map((name, i) => (
-                                    <div key={i} className="flex gap-3">
-                                        <div className="w-12 h-12 bg-amber-100 text-amber-800 flex items-center justify-center rounded-2xl font-black border-2 border-amber-200">{winds[i]}</div>
-                                        <input type="text" value={name} onChange={e => {
-                                            const p = [...players]; p[i] = e.target.value; setPlayers(p);
-                                        }} className="flex-1 px-4 bg-stone-50 border-2 border-stone-100 rounded-2xl font-bold focus:border-red-500 outline-none transition-all" />
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-stone-400 block text-center uppercase">底</label>
-                                    <input type="number" value={baseMoney} onChange={e=>setBaseMoney(Number(e.target.value))} className="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl text-center font-black text-xl" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-stone-400 block text-center uppercase">台</label>
-                                    <input type="number" value={pointMoney} onChange={e=>setPointMoney(Number(e.target.value))} className="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl text-center font-black text-xl" />
-                                </div>
-                            </div>
-
-                            <button onClick={() => setIsGameStarted(true)} className="w-full bg-red-700 hover:bg-red-800 text-white font-black py-5 rounded-3xl shadow-xl shadow-red-100 transition-all active:scale-95 text-xl">開始發財</button>
-                        </div>
-                    </div>
-                );
+            if (state.isSelfDraw) {
+                let totalWon = 0;
+                state.players.forEach((_, idx) => {
+                    if (idx !== state.winnerIdx) {
+                        const amount = calculateTotal(state.winnerIdx === state.currentDealerIdx, idx === state.currentDealerIdx, netPoints);
+                        changes[idx] -= amount;
+                        totalWon += amount;
+                    }
+                });
+                changes[state.winnerIdx] = totalWon;
+            } else {
+                const amount = calculateTotal(state.winnerIdx === state.currentDealerIdx, state.loserIdx === state.currentDealerIdx, netPoints);
+                changes[state.winnerIdx] = amount;
+                changes[state.loserIdx] = -amount;
             }
 
-            return (
-                <div className="min-h-screen bg-stone-50 pb-32">
-                    <div className="bg-stone-900 text-white p-5 sticky top-0 z-30 shadow-xl rounded-b-[2rem]">
-                        <div className="max-w-md mx-auto space-y-4">
-                            <div className="flex justify-between items-center">
-                                <span className="bg-amber-500 text-black px-3 py-1 rounded-full text-xs font-black">
-                                    {winds[roundWindIdx]}風{winds[currentDealerIdx]}
-                                </span>
-                                <button onClick={()=>setIsGameStarted(false)} className="opacity-50"><LucideIcon name="settings" /></button>
-                            </div>
-                            <div className="grid grid-cols-4 gap-2">
-                                {players.map((name, i) => (
-                                    <div key={i} className="text-center p-2 rounded-2xl bg-white/5 border border-white/10">
-                                        <div className="text-[10px] text-stone-500 font-bold">{winds[i]}</div>
-                                        <div className="text-xs font-black truncate">{name}</div>
-                                        <div className={`text-sm font-black mt-1 ${balances[i] > 0 ? 'text-emerald-400' : balances[i] < 0 ? 'text-red-400' : 'text-stone-500'}`}>
-                                            {balances[i] > 0 ? `+${balances[i]}` : balances[i]}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+            const currentStatus = getRoundStatus(state.roundWindIdx, state.currentDealerIdx);
+
+            const newRound = {
+                id: Date.now(),
+                status: currentStatus,
+                winner: state.players[state.winnerIdx],
+                winnerWind: state.winds[state.winnerIdx],
+                type: state.isSelfDraw ? '自摸' : '放槍',
+                loser: state.isSelfDraw ? '三家' : state.players[state.loserIdx],
+                loserWind: state.isSelfDraw ? '' : state.winds[state.loserIdx],
+                points: state.points,
+                penalty: state.penalty,
+                dealer: state.players[state.currentDealerIdx],
+                dealerWind: state.winds[state.currentDealerIdx],
+                combo: state.comboCount,
+                changes: changes,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            };
+
+            state.history = [newRound, ...state.history];
+            
+            if (state.winnerIdx === state.currentDealerIdx) {
+                state.comboCount += 1;
+            } else {
+                state.comboCount = 0;
+                const nextDealerIdx = (state.currentDealerIdx + 1) % 4;
+                state.currentDealerIdx = nextDealerIdx;
+                if (nextDealerIdx === 0) {
+                    state.roundWindIdx = (state.roundWindIdx + 1) % 4;
+                }
+            }
+            state.points = 0;
+            state.penalty = 0;
+            render();
+        }
+
+        function undoLastRound() {
+            if (state.history.length === 0) return;
+            state.history.shift();
+            render();
+        }
+
+        // --- UI 渲染邏輯 (對應 React Component) ---
+        function render() {
+            const app = document.getElementById('app');
+            
+            if (!state.isGameStarted) {
+                app.innerHTML = renderSetupView();
+            } else {
+                app.innerHTML = renderGameView();
+            }
+            // 重新初始化 Lucide 圖示
+            lucide.createIcons();
+        }
+
+        function renderSetupView() {
+            return `
+                <div class="min-h-screen bg-stone-100 p-4 font-sans text-stone-800 flex items-center justify-center text-[16px]">
+                    <div class="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-red-700">
+                        <div class="p-8 text-center bg-stone-50 border-b border-stone-100">
+                            <h1 class="text-3xl font-black text-red-800 mb-2">🧧 恭喜發財</h1>
+                            <p class="text-stone-500 font-medium tracking-widest text-sm uppercase">台 灣 麻 將 記 帳 系 統</p>
                         </div>
-                    </div>
-
-                    <div className="max-w-md mx-auto p-4 space-y-6">
-                        {/* 莊家控制 */}
-                        <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-stone-100 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest flex items-center gap-2">
-                                    <LucideIcon name="flag" size={14} className="text-red-500" /> 目前莊家
-                                </h3>
-                                <div className="flex items-center bg-stone-100 rounded-full px-2 py-1">
-                                    <button onClick={()=>setComboCount(Math.max(0, comboCount-1))} className="w-8 h-8 font-black">-</button>
-                                    <span className="px-4 font-black text-red-600">連 {comboCount}</span>
-                                    <button onClick={()=>setComboCount(comboCount+1)} className="w-8 h-8 font-black">+</button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-4 gap-2">
-                                {players.map((name, i) => (
-                                    <button key={i} onClick={() => {setCurrentDealerIdx(i); setComboCount(0);}} className={`py-3 rounded-2xl text-xs font-black transition-all border-2 ${currentDealerIdx === i ? 'bg-stone-900 border-stone-900 text-white shadow-lg scale-105' : 'bg-stone-50 border-transparent text-stone-400'}`}>
-                                        {winds[i]}家
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 結算面板 */}
-                        <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-stone-100 space-y-6">
-                            <div className="space-y-4">
-                                <label className="text-xs font-black text-stone-400 text-center block uppercase tracking-widest">🏆 贏家</label>
-                                <div className="grid grid-cols-4 gap-2">
-                                    {players.map((name, i) => (
-                                        <button key={i} onClick={() => setWinnerIdx(i)} className={`py-3 rounded-2xl text-xs font-black transition-all border-2 ${winnerIdx === i ? 'bg-amber-400 border-amber-500 text-black shadow-lg scale-105' : 'bg-stone-50 border-transparent text-stone-400'}`}>
-                                            {name}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3">
-                                <button onClick={()=>setIsSelfDraw(true)} className={`flex-1 py-4 rounded-2xl font-black border-2 transition-all ${isSelfDraw ? 'bg-red-700 text-white border-red-800 shadow-lg' : 'bg-stone-50 text-stone-400 border-transparent'}`}>自摸</button>
-                                <button onClick={()=>setIsSelfDraw(false)} className={`flex-1 py-4 rounded-2xl font-black border-2 transition-all ${!isSelfDraw ? 'bg-red-700 text-white border-red-800 shadow-lg' : 'bg-stone-50 text-stone-400 border-transparent'}`}>放槍</button>
-                            </div>
-
-                            {!isSelfDraw && (
-                                <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                                    <label className="text-xs font-black text-stone-400 text-center block uppercase tracking-widest">🎯 放槍者</label>
-                                    <div className="grid grid-cols-4 gap-2">
-                                        {players.map((name, i) => (
-                                            <button key={i} disabled={winnerIdx === i} onClick={() => setLoserIdx(i)} className={`py-3 rounded-2xl text-xs font-black transition-all border-2 ${winnerIdx === i ? 'opacity-10 cursor-not-allowed' : loserIdx === i ? 'bg-stone-800 border-stone-900 text-white shadow-lg' : 'bg-stone-50 border-transparent text-stone-400'}`}>
-                                                {winds[i]}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-stone-50 p-4 rounded-[1.5rem] text-center">
-                                    <label className="text-[10px] font-black text-stone-400 block mb-1">台數</label>
-                                    <div className="flex items-center justify-between">
-                                        <button onClick={()=>setPoints(Math.max(0, points-1))} className="w-8 h-8 bg-white rounded-full shadow-sm font-black">-</button>
-                                        <span className="text-2xl font-black text-red-700">{points}</span>
-                                        <button onClick={()=>setPoints(points+1)} className="w-8 h-8 bg-white rounded-full shadow-sm font-black">+</button>
-                                    </div>
-                                </div>
-                                <div className="bg-stone-50 p-4 rounded-[1.5rem] text-center">
-                                    <label className="text-[10px] font-black text-stone-400 block mb-1">扣台</label>
-                                    <div className="flex items-center justify-between">
-                                        <button onClick={()=>setPenalty(Math.max(0, penalty-1))} className="w-8 h-8 bg-white rounded-full shadow-sm font-black">-</button>
-                                        <span className="text-2xl font-black text-stone-400">{penalty}</span>
-                                        <button onClick={()=>setPenalty(penalty+1)} className="w-8 h-8 bg-white rounded-full shadow-sm font-black">+</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button onClick={handleAddRound} className="w-full bg-amber-500 text-black font-black py-5 rounded-3xl shadow-xl border-b-4 border-amber-600 active:translate-y-1 transition-all text-xl mt-4">確認記帳</button>
-                        </div>
-
-                        {/* 歷史紀錄 */}
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center px-2">
-                                <h2 className="font-black text-stone-800 flex items-center gap-2"><LucideIcon name="history" size={18}/> 歷史紀錄</h2>
-                                <button onClick={undoLast} disabled={history.length===0} className="text-xs font-black text-stone-400 disabled:opacity-20 flex items-center gap-1">
-                                    <LucideIcon name="rotate-ccw" size={12}/> 撤銷
-                                </button>
-                            </div>
-                            {history.length === 0 ? (
-                                <div className="text-center py-12 border-4 border-dashed border-stone-200 rounded-[2rem] text-stone-300 font-black italic">祝 大 家 手 氣 亨 通</div>
-                            ) : (
-                                history.map(round => (
-                                    <div key={round.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-stone-100 flex items-center justify-between">
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-black bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full">{round.status}</span>
-                                                <span className="text-[10px] text-stone-300 font-bold">{round.timestamp}</span>
+                        <div class="p-6 space-y-6">
+                            <div class="space-y-3">
+                                <label class="flex items-center gap-2 text-sm font-bold text-stone-600">
+                                    <i data-lucide="users" class="w-[18px] h-[18px]"></i> 玩家設定 (初始風位)
+                                </label>
+                                <div class="space-y-2">
+                                    ${state.players.map((name, i) => `
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-12 h-12 bg-amber-50 text-amber-700 flex items-center justify-center rounded-xl font-black text-lg shrink-0 border border-amber-200">
+                                                ${state.winds[i]}
                                             </div>
-                                            <div className="font-black text-stone-800">{round.winner} <span className="text-red-600">{round.type}</span> {round.points}台</div>
+                                            <input type="text" value="${name}" onchange="state.players[${i}]=this.value" class="flex-1 p-3 border-2 border-stone-100 rounded-xl focus:border-red-500 outline-none transition-all font-bold">
                                         </div>
-                                        <div className="flex gap-2">
-                                            {round.changes.map((c, i) => (
-                                                <div key={i} className="text-center w-8">
-                                                    <div className="text-[8px] text-stone-300 font-bold">{winds[i]}</div>
-                                                    <div className={`text-[10px] font-black ${c > 0 ? 'text-emerald-500' : c < 0 ? 'text-red-500' : 'text-stone-200'}`}>
-                                                        {c > 0 ? `+${c}` : c}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    {/* 底部浮動資訊 */}
-                    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-xs px-4">
-                        <div className="bg-stone-900/90 backdrop-blur-xl text-white p-4 rounded-[2rem] shadow-2xl flex justify-between items-center text-xs font-bold border border-white/10">
-                            <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                <span>底台 {baseMoney} / {pointMoney}</span>
+                                    `).join('')}
+                                </div>
                             </div>
-                            <div className="text-amber-400">莊家台：{1 + comboCount*2}</div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="space-y-2">
+                                    <label class="text-sm font-bold text-stone-600 block text-center">底</label>
+                                    <input type="number" value="${state.baseMoney}" onchange="state.baseMoney=Number(this.value)" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-xl focus:border-red-500 outline-none text-center text-xl font-black">
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-sm font-bold text-stone-600 block text-center">台</label>
+                                    <input type="number" value="${state.pointMoney}" onchange="state.pointMoney=Number(this.value)" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-xl focus:border-red-500 outline-none text-center text-xl font-black">
+                                </div>
+                            </div>
+                            <button onclick="state.isGameStarted=true; render()" class="w-full bg-red-700 hover:bg-red-800 text-white font-black py-4 rounded-2xl shadow-lg shadow-red-100 transition-all text-lg flex items-center justify-center gap-2 active:scale-95">
+                                對局開始
+                            </button>
                         </div>
                     </div>
                 </div>
-            );
-        };
+            `;
+        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        function renderGameView() {
+            const balances = getBalances();
+            return `
+                <!-- Header -->
+                <div class="bg-stone-800 text-stone-100 p-4 sticky top-0 z-20 shadow-lg border-b border-stone-700">
+                    <div class="max-w-md mx-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h1 class="text-xl font-black flex items-center gap-2">
+                                <span class="bg-amber-500 text-stone-900 px-2 py-0.5 rounded text-sm shadow-sm">
+                                    ${getRoundStatus(state.roundWindIdx, state.currentDealerIdx)}
+                                </span> 
+                                計分板
+                            </h1>
+                            <button onclick="state.isGameStarted=false; render()" class="bg-white/10 p-2 rounded-full hover:bg-white/20 transition-colors border border-white/5">
+                                <i data-lucide="settings" class="w-[18px] h-[18px] text-stone-300"></i>
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2">
+                            ${state.players.map((name, i) => `
+                                <div class="bg-stone-900/40 backdrop-blur-sm rounded-2xl p-2 text-center border border-white/5 shadow-inner">
+                                    <div class="text-[10px] text-stone-400 mb-0.5 font-bold uppercase tracking-tighter">${state.winds[i]}位</div>
+                                    <div class="text-[12px] font-bold truncate mb-1 text-stone-200">${name}</div>
+                                    <div class="text-sm font-black truncate ${balances[i] > 0 ? 'text-emerald-400' : balances[i] < 0 ? 'text-rose-500' : 'text-stone-500'}">
+                                        ${balances[i] > 0 ? '+' + balances[i] : balances[i]}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="max-w-md mx-auto p-4 space-y-4 pb-24">
+                    <!-- Input Area -->
+                    <div class="bg-white rounded-3xl shadow-sm border border-stone-200 p-5 space-y-6">
+                        <!-- 目前莊家 -->
+                        <div class="flex items-center justify-between gap-4">
+                            <div class="flex-1">
+                                <label class="text-xs font-bold text-stone-400 block mb-3 uppercase tracking-wider text-center">🚩 目前莊家</label>
+                                <div class="grid grid-cols-4 gap-2">
+                                    ${state.players.map((name, i) => `
+                                        <button onclick="state.currentDealerIdx=${i}; state.comboCount=0; render()" class="py-3 rounded-xl font-black transition-all border-2 flex flex-col items-center justify-center ${state.currentDealerIdx === i ? 'bg-stone-800 border-stone-900 text-stone-100 shadow-md ring-2 ring-stone-800 ring-offset-2' : 'bg-white border-stone-100 text-stone-400'}">
+                                            <span class="truncate w-full px-1 text-xs">${name}</span>
+                                            <span class="text-[10px] font-bold ${state.currentDealerIdx === i ? 'text-amber-400' : 'text-stone-300'}">(${state.winds[i]})</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="w-20 shrink-0">
+                                <label class="text-xs font-bold text-stone-400 block mb-3 uppercase tracking-wider text-center">連莊</label>
+                                <div class="flex items-center">
+                                    <button onclick="state.comboCount=Math.max(0, state.comboCount-1); render()" class="w-7 h-11 bg-stone-100 rounded-l-xl flex items-center justify-center font-bold active:bg-stone-200">-</button>
+                                    <div class="flex-1 h-11 bg-stone-50 flex items-center justify-center font-black text-red-700 border-y-2 border-stone-100">${state.comboCount}</div>
+                                    <button onclick="state.comboCount++; render()" class="w-7 h-11 bg-stone-100 rounded-r-xl flex items-center justify-center font-bold active:bg-stone-200">+</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="border-stone-100" />
+
+                        <!-- 贏家結算 -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="text-xs font-bold text-stone-400 block mb-3 uppercase tracking-wider text-center">🏆 贏家結算</label>
+                                <div class="grid grid-cols-4 gap-2">
+                                    ${state.players.map((name, i) => `
+                                        <button onclick="state.winnerIdx=${i}; render()" class="py-3 rounded-xl font-black transition-all border-2 flex flex-col items-center justify-center ${state.winnerIdx === i ? 'bg-amber-500 border-amber-600 text-white shadow-md scale-105 z-10 ring-2 ring-amber-500 ring-offset-2' : 'bg-white border-stone-100 text-stone-400'}">
+                                            <span class="truncate w-full px-1 text-xs">${name}</span>
+                                            <span class="text-[10px] font-bold ${state.winnerIdx === i ? 'text-amber-100' : 'text-stone-300'}">(${state.winds[i]})</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button onclick="state.isSelfDraw=true; render()" class="py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 border-2 ${state.isSelfDraw ? 'bg-red-700 border-red-800 text-white shadow-md' : 'bg-white border-stone-100 text-stone-400'}">自摸</button>
+                                <button onclick="state.isSelfDraw=false; render()" class="py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 border-2 ${!state.isSelfDraw ? 'bg-red-700 border-red-800 text-white shadow-md' : 'bg-white border-stone-100 text-stone-400'}">放槍</button>
+                            </div>
+                            ${!state.isSelfDraw ? `
+                                <div class="animate-slide-in">
+                                    <label class="text-xs font-bold text-stone-400 block mb-3 uppercase tracking-wider text-center">🎯 誰放槍？</label>
+                                    <div class="grid grid-cols-4 gap-2">
+                                        ${state.players.map((name, i) => `
+                                            <button onclick="state.loserIdx=${i}; render()" ${state.winnerIdx === i ? 'disabled' : ''} class="py-3 rounded-xl font-black transition-all border-2 flex flex-col items-center justify-center ${state.winnerIdx === i ? 'opacity-20 cursor-not-allowed border-dashed' : state.loserIdx === i ? 'bg-stone-700 border-stone-800 text-white shadow-md scale-105 ring-2 ring-stone-700 ring-offset-2' : 'bg-white border-stone-100 text-stone-400'}">
+                                                <span class="truncate w-full px-1 text-xs">${name}</span>
+                                                <span class="text-[10px] font-bold text-stone-300">(${state.winds[i]})</span>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <!-- 台數輸入 -->
+                        <div class="space-y-4">
+                            <div class="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                                <label class="text-xs font-bold text-stone-400 block mb-4 uppercase tracking-wider text-center">贏牌台數 <span class="text-[10px] opacity-60">(不含莊家台)</span></label>
+                                <div class="flex items-center justify-center gap-8">
+                                    <button onclick="state.points=Math.max(0, state.points-1); render()" class="w-12 h-12 bg-white border-2 border-stone-300 shadow-sm rounded-full flex items-center justify-center text-stone-700 active:scale-90 transition-all"><i data-lucide="chevron-down" class="w-7 h-7 stroke-[2.5]"></i></button>
+                                    <div class="relative">
+                                        <input type="number" value="${state.points}" onchange="state.points=Math.max(0, Number(this.value)); render()" class="w-16 text-center text-4xl font-black text-red-700 outline-none bg-transparent">
+                                        <div class="absolute -right-5 bottom-1 text-xs font-bold text-stone-300">台</div>
+                                    </div>
+                                    <button onclick="state.points++; render()" class="w-12 h-12 bg-white border-2 border-stone-300 shadow-sm rounded-full flex items-center justify-center text-stone-700 active:scale-90 transition-all"><i data-lucide="chevron-up" class="w-7 h-7 stroke-[2.5]"></i></button>
+                                </div>
+                            </div>
+                            <div class="bg-rose-50/30 p-4 rounded-2xl border border-rose-100">
+                                <label class="text-xs font-bold text-rose-400 block mb-4 uppercase tracking-wider text-center">犯規扣台 <span class="text-[10px] opacity-60">(從贏家總台數扣除)</span></label>
+                                <div class="flex items-center justify-center gap-8">
+                                    <button onclick="state.penalty=Math.max(0, state.penalty-1); render()" class="w-12 h-12 bg-white border-2 border-rose-200 shadow-sm rounded-full flex items-center justify-center text-rose-400 active:scale-90 transition-all"><i data-lucide="chevron-down" class="w-7 h-7 stroke-[2.5]"></i></button>
+                                    <div class="relative">
+                                        <input type="number" value="${state.penalty}" onchange="state.penalty=Math.max(0, Number(this.value)); render()" class="w-16 text-center text-4xl font-black text-rose-500 outline-none bg-transparent">
+                                        <div class="absolute -right-5 bottom-1 text-xs font-bold text-rose-200">台</div>
+                                    </div>
+                                    <button onclick="state.penalty++; render()" class="w-12 h-12 bg-white border-2 border-rose-200 shadow-sm rounded-full flex items-center justify-center text-rose-400 active:scale-90 transition-all"><i data-lucide="chevron-up" class="w-7 h-7 stroke-[2.5]"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onclick="handleAddRound()" class="w-full bg-amber-500 hover:bg-amber-600 text-stone-900 font-black py-5 rounded-2xl shadow-lg transition-all text-xl active:scale-[0.98] border-b-4 border-amber-700">確認記帳</button>
+                    </div>
+
+                    <!-- History -->
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-end px-2">
+                            <h2 class="text-stone-500 font-black flex items-center gap-2"><i data-lucide="history" class="w-[18px] h-[18px]"></i> 歷史紀錄</h2>
+                            <button onclick="undoLastRound()" ${state.history.length === 0 ? 'disabled' : ''} class="text-xs font-bold bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-stone-500 flex items-center gap-1 disabled:opacity-30 active:bg-stone-50 shadow-sm transition-all">
+                                <i data-lucide="rotate-ccw" class="w-[14px] h-[14px]"></i> 刪除上筆
+                            </button>
+                        </div>
+                        <div class="space-y-3">
+                            ${state.history.length === 0 ? '<div class="bg-stone-100/50 border-2 border-dashed border-stone-200 rounded-3xl p-10 text-center text-stone-300 font-bold">🧧 祝手氣大發！</div>' : 
+                                state.history.map(round => `
+                                    <div class="bg-white rounded-2xl p-4 shadow-sm border border-stone-100 animate-slide-in">
+                                        <div class="flex justify-between items-start mb-3 border-b border-stone-50 pb-2">
+                                            <div class="flex items-center gap-2">
+                                                <span class="bg-stone-800 text-amber-400 text-[10px] font-black px-2 py-0.5 rounded shadow-sm">${round.status}</span>
+                                                <span class="font-black text-stone-700 text-sm">${round.winner} (${round.winnerWind}) ${round.type}</span>
+                                            </div>
+                                            <div class="text-[10px] text-stone-400 font-bold">${round.timestamp}</div>
+                                        </div>
+                                        <div class="flex justify-between items-center px-1">
+                                            <div class="text-xs text-stone-500">
+                                                <span class="font-bold text-red-700">${round.points}</span> 
+                                                ${round.penalty > 0 ? `<span class="text-rose-400 font-bold">-${round.penalty}</span>` : ''} 台
+                                                ${round.combo > 0 ? `<span class="ml-2 text-amber-600 font-bold">(連${round.combo})</span>` : ''}
+                                            </div>
+                                            <div class="grid grid-cols-4 gap-4 flex-1 ml-6">
+                                                ${round.changes.map((change, i) => `
+                                                    <div class="text-center">
+                                                        <div class="text-[9px] text-stone-300 truncate font-bold uppercase tracking-tighter">${state.players[i]}</div>
+                                                        <div class="text-[13px] font-black ${change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : 'text-stone-200'}">${change > 0 ? '+' + change : change}</div>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Quick Info -->
+                <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-xs px-4 pointer-events-none">
+                    <div class="bg-stone-800/95 backdrop-blur text-stone-100 p-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs pointer-events-auto border border-white/10">
+                        <i data-lucide="alert-circle" class="w-[16px] h-[16px] text-amber-400 shrink-0"></i>
+                        <div class="flex-1 flex justify-between items-center">
+                            <span>底台: <span class="text-white font-bold">${state.baseMoney}/${state.pointMoney}</span></span>
+                            <span class="bg-white/10 px-2 py-0.5 rounded border border-white/5">
+                                莊家台: <span class="text-amber-400 font-bold">${1 + state.comboCount * 2}</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- 初始化 ---
+        render();
     </script>
 </body>
 </html>
