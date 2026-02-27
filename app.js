@@ -127,7 +127,7 @@ const App = () => {
           <div className="p-6 space-y-6">
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm font-bold text-stone-600">
-                <Users size={18} /> 玩家設定 (初始風家)
+                <Users size={18} /> 玩家設定 (初始風位)
               </label>
               <div className="space-y-2">
                 {players.map((name, i) => (
