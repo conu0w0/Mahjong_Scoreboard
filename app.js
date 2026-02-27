@@ -1,14 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  Users, 
-  Settings, 
-  History, 
-  RotateCcw, 
-  Trophy, 
-  AlertCircle,
-  ChevronUp,
-  ChevronDown
-} from 'lucide-react';
+const { useState, useMemo } = React;
+
+const { 
+  Users, Settings, History, RotateCcw, 
+  Trophy, AlertCircle, ChevronUp, ChevronDown 
+} = lucide;
 
 const App = () => {
   // --- 初期設定狀態 ---
@@ -500,4 +495,5 @@ const App = () => {
   );
 };
 
-export default App;
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
