@@ -1,11 +1,12 @@
 const { useState, useMemo } = React;
 
-const { 
-  Users, Settings, History, RotateCcw, 
-  Trophy, AlertCircle, ChevronUp, ChevronDown 
-} = lucide;
-
 const App = () => {
+  // 確保圖標物件存在，若不存在則給予空組件避免當機
+  const {
+    Users, Settings, History, RotateCcw, 
+    Trophy, AlertCircle, ChevronUp, ChevronDown 
+  } = window.lucide ? lucide : {};
+  
   // --- 初期設定狀態 ---
   const [players, setPlayers] = useState(['玩家 1', '玩家 2', '玩家 3', '玩家 4']);
   const winds = ['東', '南', '西', '北'];
